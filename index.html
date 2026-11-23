@@ -475,20 +475,23 @@
         title: "かわいそうな僕",
         file: "kawaisou.mp3",
         memo: "BPM"
-      },
+      }
       // 曲を増やすときは上の { ... }, をコピーして追加！
     ];
 
-    // アイコン絵文字設定（ホーム画面＆ファビコン用）
+    // アイコン絵文字設定（ホーム画面＆ファビコン＆ロック画面アート用）
     const ICON_EMOJI = "🎀";
     const ICON_BG = "#e62e5c";
+    const ARTIST_NAME = "ゆーれい";
     // =====================================================================
+
+    let generatedIconDataUrl = "";
 
     // CanvasでPNGアイコンを生成してホーム画面＆ファビコンに設定
     function generateEmojiIcons() {
       const canvas = document.createElement("canvas");
-      canvas.width = 180;
-      canvas.height = 180;
+      canvas.width = 512;
+      canvas.height = 512;
       const ctx = canvas.getContext("2d");
 
       // 背景塗りつぶし
@@ -496,16 +499,16 @@
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       // 絵文字描画
-      ctx.font = "112px 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif";
+      ctx.font = "310px 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(ICON_EMOJI, canvas.width / 2, canvas.height / 2 + 6);
+      ctx.fillText(ICON_EMOJI, canvas.width / 2, canvas.height / 2 + 18);
 
-      const pngDataUrl = canvas.toDataURL("image/png");
+      generatedIconDataUrl = canvas.toDataURL("image/png");
       const faviconEl = document.getElementById("dynamic-favicon");
       const appleIconEl = document.getElementById("dynamic-apple-icon");
-      if (faviconEl) faviconEl.href = pngDataUrl;
-      if (appleIconEl) appleIconEl.href = pngDataUrl;
+      if (faviconEl) faviconEl.href = generatedIconDataUrl;
+      if (appleIconEl) appleIconEl.href = generatedIconDataUrl;
     }
 
     const audio = new Audio();
@@ -546,6 +549,46 @@
       return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
     }
 
+    // ロック画面・通知領域のメディア情報（Media Session API）を更新
+    function updateMediaSession(song) {
+      if (!("mediaSession" in navigator) || !song) return;
+
+      const artwork = generatedIconDataUrl
+        ? [
+            { src: generatedIconDataUrl, sizes: "192x192", type: "image/png" },
+            { src: generatedIconDataUrl, sizes: "512x512", type: "image/png" }
+          ]
+        : [];
+
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: song.title,
+        artist: ARTIST_NAME,
+        album: "0401 SOUND STUDIO",
+        artwork
+      });
+
+      navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+    }
+
+    function setupMediaSessionHandlers() {
+      if (!("mediaSession" in navigator)) return;
+
+      navigator.mediaSession.setActionHandler("play", () => {
+        playSong();
+      });
+      navigator.mediaSession.setActionHandler("pause", () => {
+        pauseSong();
+      });
+      navigator.mediaSession.setActionHandler("previoustrack", () => {
+        const nextIdx = (currentIndex - 1 + SONGS.length) % SONGS.length;
+        loadSong(nextIdx, true);
+      });
+      navigator.mediaSession.setActionHandler("nexttrack", () => {
+        const nextIdx = (currentIndex + 1) % SONGS.length;
+        loadSong(nextIdx, true);
+      });
+    }
+
     function renderPlaylist() {
       trackListEl.innerHTML = "";
       SONGS.forEach((song, index) => {
@@ -576,6 +619,7 @@
       currentTimeEl.textContent = "00:00";
       durationTimeEl.textContent = "00:00";
       renderPlaylist();
+      updateMediaSession(song);
 
       if (currentBlobUrl) {
         URL.revokeObjectURL(currentBlobUrl);
@@ -622,6 +666,9 @@
         isPlaying = true;
         playBtn.textContent = "❚❚";
         playerCard.classList.add("playing");
+        if ("mediaSession" in navigator) {
+          navigator.mediaSession.playbackState = "playing";
+        }
       }).catch(err => {
         console.warn("再生エラー:", err);
       });
@@ -632,7 +679,29 @@
       isPlaying = false;
       playBtn.textContent = "▶";
       playerCard.classList.remove("playing");
+      if ("mediaSession" in navigator) {
+        navigator.mediaSession.playbackState = "paused";
+      }
     }
+
+    // ブラウザ側の再生・一時停止イベントとUIを同期
+    audio.addEventListener("play", () => {
+      isPlaying = true;
+      playBtn.textContent = "❚❚";
+      playerCard.classList.add("playing");
+      if ("mediaSession" in navigator) {
+        navigator.mediaSession.playbackState = "playing";
+      }
+    });
+
+    audio.addEventListener("pause", () => {
+      isPlaying = false;
+      playBtn.textContent = "▶";
+      playerCard.classList.remove("playing");
+      if ("mediaSession" in navigator) {
+        navigator.mediaSession.playbackState = "paused";
+      }
+    });
 
     loopBtn.addEventListener("click", () => {
       loopMode = (loopMode + 1) % 3;
@@ -701,8 +770,19 @@
     volumeBar.addEventListener("input", applyVolume);
     volumeBar.addEventListener("change", applyVolume);
 
+    // 画面復帰時に再生状態とUIを同期
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        const actuallyPlaying = !audio.paused && !audio.ended;
+        isPlaying = actuallyPlaying;
+        playBtn.textContent = actuallyPlaying ? "❚❚" : "▶";
+        playerCard.classList.toggle("playing", actuallyPlaying);
+      }
+    });
+
     // 初期化
     generateEmojiIcons();
+    setupMediaSessionHandlers();
     applyVolume();
     if (SONGS.length > 0) {
       loadSong(0, false);
@@ -710,3 +790,4 @@
   </script>
 </body>
 </html>
+
