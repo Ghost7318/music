@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="MY TRACKS">
-  <meta name="theme-color" content="#e62e5c">
+  <meta name="theme-color" content="#4db8e8">
   <meta name="robots" content="noindex, nofollow">
   <title>自作曲プレイヤー</title>
 
@@ -19,11 +19,13 @@
   <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700;800&family=Orbitron:wght@600;800&display=swap" rel="stylesheet">
   <style>
     :root {
-      --main-crimson: #e62e5c;      /* メインの深紅・ローズレッド */
-      --main-pink: #ff7597;         /* コーラルピンク */
-      --main-light-pink: #fff0f4;   /* 背景の淡いピンク */
-      --main-dark: #2b2329;         /* チャコールダーク */
-      --main-gold: #f5b041;         /* アクセントのゴールド */
+      --sky: #4db8e8;          /* メインの水色 */
+      --sky-deep: #2a8fc4;     /* 濃い水色（影・文字） */
+      --sky-soft: #bfe6f7;     /* やわらかい水色 */
+      --sky-pale: #eaf7fd;     /* 背景の淡い水色 */
+      --navy: #1f3a52;         /* 制服風ネイビー */
+      --chalk: #fffdf5;        /* 黒板消し・ノート風の生成り */
+      --accent: #ffd86b;       /* 校舎の窓あかりのイエロー */
       --white: #ffffff;
     }
 
@@ -40,38 +42,62 @@
 
     body {
       font-family: 'M PLUS Rounded 1c', sans-serif;
-      background-color: var(--main-light-pink);
-      background-image: 
-        radial-gradient(var(--main-pink) 1.5px, transparent 1.5px),
-        radial-gradient(var(--main-crimson) 1.5px, var(--main-light-pink) 1.5px);
-      background-size: 32px 32px;
-      background-position: 0 0, 16px 16px;
-      color: var(--main-dark);
+      background-color: var(--sky-pale);
+      /* ノートのような罫線 */
+      background-image:
+        linear-gradient(var(--sky-soft) 1px, transparent 1px),
+        linear-gradient(90deg, var(--sky-soft) 1px, transparent 1px);
+      background-size: 28px 28px;
+      color: var(--navy);
       min-height: 100vh;
       display: flex;
       justify-content: center;
       align-items: center;
       padding: 20px;
+      overflow-x: hidden;
+    }
+
+    /* 背景にふわふわ漂うおばけ */
+    .floaters {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 0;
+    }
+    .floater {
+      position: absolute;
+      bottom: -60px;
+      font-size: 28px;
+      opacity: 0.35;
+      animation: floatUp linear infinite;
+    }
+    @keyframes floatUp {
+      0%   { transform: translateY(0) translateX(0) rotate(-8deg); }
+      50%  { transform: translateY(-55vh) translateX(18px) rotate(8deg); }
+      100% { transform: translateY(-115vh) translateX(-10px) rotate(-8deg); }
     }
 
     .player-card {
       width: 100%;
       max-width: 480px;
       background: rgba(255, 255, 255, 0.96);
-      border: 4px solid var(--main-crimson);
+      border: 4px solid var(--sky);
       border-radius: 28px;
-      box-shadow: 0 12px 0 var(--main-crimson), 0 20px 30px rgba(230, 46, 92, 0.25);
+      box-shadow: 0 12px 0 var(--sky-deep), 0 20px 30px rgba(42, 143, 196, 0.25);
       overflow: hidden;
       position: relative;
+      z-index: 1;
     }
 
     .header {
-      background: linear-gradient(135deg, var(--main-crimson), var(--main-pink));
+      background: linear-gradient(135deg, var(--sky), #8fd8f5);
       color: var(--white);
       padding: 18px 24px;
       display: flex;
       justify-content: center;
       align-items: center;
+      gap: 10px;
       border-bottom: 3px dashed var(--white);
     }
 
@@ -79,6 +105,7 @@
       font-weight: 800;
       font-size: 1.05rem;
       letter-spacing: 1px;
+      text-shadow: 0 2px 0 rgba(31, 58, 82, 0.25);
     }
 
     .now-playing-area {
@@ -87,42 +114,65 @@
       position: relative;
     }
 
+    /* 校舎のチャイム時計＋おばけ */
     .disc-wrapper {
       position: relative;
-      width: 130px;
-      height: 130px;
+      width: 140px;
+      height: 140px;
       margin: 0 auto 18px;
       display: flex;
       justify-content: center;
       align-items: center;
     }
 
-    .disc-svg {
+    .clock-svg {
+      position: absolute;
+      inset: 0;
       width: 100%;
       height: 100%;
-      transition: transform 0.3s ease;
       pointer-events: none;
     }
 
-    .playing .disc-svg {
-      animation: spin 4s linear infinite;
+    .clock-ticks {
+      transform-origin: 60px 60px;
+    }
+
+    .playing .clock-ticks {
+      animation: spin 12s linear infinite;
     }
 
     @keyframes spin {
       100% { transform: rotate(360deg); }
     }
 
+    .ghost-svg {
+      position: relative;
+      width: 62px;
+      height: 62px;
+      pointer-events: none;
+      filter: drop-shadow(0 3px 4px rgba(31, 58, 82, 0.25));
+    }
+
+    .playing .ghost-svg {
+      animation: bob 2s ease-in-out infinite;
+    }
+
+    @keyframes bob {
+      0%, 100% { transform: translateY(2px) rotate(-4deg); }
+      50%      { transform: translateY(-6px) rotate(4deg); }
+    }
+
     .song-title {
       font-size: 1.35rem;
       font-weight: 800;
-      color: var(--main-crimson);
+      color: var(--sky-deep);
       margin-bottom: 4px;
       word-break: break-all;
     }
 
     .song-sub {
       font-size: 0.85rem;
-      color: #887078;
+      color: #6f8799;
       font-weight: 700;
     }
 
@@ -135,7 +185,7 @@
       justify-content: space-between;
       font-family: 'Orbitron', sans-serif;
       font-size: 0.78rem;
-      color: var(--main-crimson);
+      color: var(--sky-deep);
       font-weight: 600;
       margin-bottom: 6px;
     }
@@ -145,7 +195,7 @@
       appearance: none;
       width: 100%;
       height: 10px;
-      background: #ffd6e0;
+      background: var(--sky-soft);
       border-radius: 10px;
       outline: none;
       cursor: pointer;
@@ -154,12 +204,12 @@
     input[type="range"]::-webkit-slider-thumb {
       -webkit-appearance: none;
       appearance: none;
-      width: 22px;
-      height: 22px;
+      width: 24px;
+      height: 24px;
       border-radius: 50%;
-      background: var(--main-crimson);
-      border: 3px solid var(--white);
-      box-shadow: 0 2px 6px rgba(230, 46, 92, 0.5);
+      background: var(--white);
+      border: 3px solid var(--sky);
+      box-shadow: 0 2px 6px rgba(42, 143, 196, 0.5);
       cursor: pointer;
       transition: transform 0.15s;
     }
@@ -190,15 +240,15 @@
       width: 44px;
       height: 44px;
       border-radius: 50%;
-      background: var(--main-light-pink);
-      color: var(--main-crimson);
-      border: 2px solid var(--main-pink);
+      background: var(--sky-pale);
+      color: var(--sky-deep);
+      border: 2px solid var(--sky);
       font-size: 1rem;
       font-weight: 800;
     }
 
     .btn-sub:hover {
-      background: var(--main-pink);
+      background: var(--sky);
       color: var(--white);
       transform: translateY(-2px);
     }
@@ -213,42 +263,42 @@
     }
 
     .btn-loop.active {
-      background: var(--main-crimson);
+      background: var(--sky-deep);
       color: var(--white);
-      border-color: var(--main-crimson);
-      box-shadow: 0 3px 8px rgba(230, 46, 92, 0.35);
+      border-color: var(--sky-deep);
+      box-shadow: 0 3px 8px rgba(42, 143, 196, 0.4);
     }
 
     .btn-play {
       width: 68px;
       height: 68px;
       border-radius: 50%;
-      background: var(--main-crimson);
+      background: var(--sky);
       color: var(--white);
       font-size: 1.6rem;
-      box-shadow: 0 5px 0 #a8183d;
+      box-shadow: 0 5px 0 var(--sky-deep);
     }
 
     .btn-play:hover {
-      background: #f03866;
+      background: #66c6f0;
       transform: translateY(-2px);
     }
 
     .btn-play:active {
       transform: translateY(3px);
-      box-shadow: 0 2px 0 #a8183d;
+      box-shadow: 0 2px 0 var(--sky-deep);
     }
 
     .playlist-section {
-      background: #fff7f9;
-      border-top: 3px solid #ffd6e0;
+      background: var(--chalk);
+      border-top: 3px solid var(--sky-soft);
       padding: 18px 20px 16px;
     }
 
     .playlist-header {
       font-size: 0.85rem;
       font-weight: 800;
-      color: var(--main-crimson);
+      color: var(--sky-deep);
       margin-bottom: 10px;
       display: flex;
       align-items: center;
@@ -269,13 +319,13 @@
       width: 6px;
     }
     .track-list::-webkit-scrollbar-thumb {
-      background: var(--main-pink);
+      background: var(--sky);
       border-radius: 10px;
     }
 
     .track-item {
       background: var(--white);
-      border: 2px solid #ffd6e0;
+      border: 2px solid var(--sky-soft);
       border-radius: 14px;
       padding: 10px 14px;
       display: flex;
@@ -286,15 +336,15 @@
     }
 
     .track-item:hover {
-      border-color: var(--main-pink);
+      border-color: var(--sky);
       transform: translateX(4px);
     }
 
     .track-item.active {
-      background: var(--main-crimson);
-      border-color: var(--main-crimson);
+      background: var(--sky);
+      border-color: var(--sky-deep);
       color: var(--white);
-      box-shadow: 0 4px 10px rgba(230, 46, 92, 0.3);
+      box-shadow: 0 4px 10px rgba(42, 143, 196, 0.35);
     }
 
     .track-left {
@@ -308,15 +358,15 @@
       font-family: 'Orbitron', sans-serif;
       font-size: 0.8rem;
       font-weight: 800;
-      background: var(--main-light-pink);
-      color: var(--main-crimson);
+      background: var(--sky-pale);
+      color: var(--sky-deep);
       padding: 3px 8px;
       border-radius: 8px;
     }
 
     .track-item.active .track-num {
       background: var(--white);
-      color: var(--main-crimson);
+      color: var(--sky-deep);
     }
 
     .track-name {
@@ -332,49 +382,74 @@
       font-weight: 800;
       padding: 2px 8px;
       border-radius: 20px;
-      background: #ffe3ea;
-      color: var(--main-crimson);
+      background: var(--sky-pale);
+      color: var(--sky-deep);
       flex-shrink: 0;
     }
 
     .track-item.active .track-badge {
-      background: var(--main-gold);
-      color: var(--main-dark);
+      background: var(--accent);
+      color: var(--navy);
     }
 
     .footer {
       text-align: center;
       font-size: 0.76rem;
-      color: #8c6d77;
+      color: #6f8799;
       font-weight: 700;
       padding: 12px 16px 18px;
-      background: #fff7f9;
+      background: var(--chalk);
       line-height: 1.6;
     }
   </style>
 </head>
 <body oncontextmenu="return false;">
 
+  <!-- 背景のおばけ -->
+  <div class="floaters" id="floaters" aria-hidden="true"></div>
+
   <div class="player-card" id="playerCard">
     <!-- ヘッダー -->
     <div class="header">
-      <div class="site-title">🎀 MY ORIGINAL TRACKS</div>
+      <span>🏫</span>
+      <div class="site-title">MY ORIGINAL TRACKS</div>
+      <span>👻</span>
     </div>
 
     <!-- プレイヤー本体 -->
     <div class="now-playing-area">
-      <!-- 回転するディスクアイコン -->
+      <!-- チャイム時計＋おばけ -->
       <div class="disc-wrapper">
-        <svg class="disc-svg" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="60" cy="60" r="54" fill="#2B2329" stroke="#E62E5C" stroke-width="4"/>
-          <circle cx="60" cy="60" r="46" fill="none" stroke="#5a4a54" stroke-width="1.5"/>
-          <circle cx="60" cy="60" r="38" fill="none" stroke="#5a4a54" stroke-width="1.5"/>
-          <circle cx="60" cy="60" r="30" fill="none" stroke="#5a4a54" stroke-width="1.5"/>
-          <path d="M20 40 A44 44 0 0 1 40 20" stroke="#FF7597" stroke-width="4" stroke-linecap="round" fill="none"/>
-          <path d="M100 80 A44 44 0 0 1 80 100" stroke="#FF7597" stroke-width="4" stroke-linecap="round" fill="none"/>
-          <circle cx="60" cy="60" r="22" fill="#E62E5C"/>
-          <circle cx="60" cy="60" r="22" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-dasharray="5 4"/>
-          <circle cx="60" cy="60" r="5" fill="#FFFFFF"/>
+        <svg class="clock-svg" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="60" cy="60" r="56" fill="#EAF7FD" stroke="#4DB8E8" stroke-width="4"/>
+          <circle cx="60" cy="60" r="48" fill="#FFFFFF" stroke="#BFE6F7" stroke-width="2"/>
+          <g class="clock-ticks" stroke="#4DB8E8" stroke-width="3" stroke-linecap="round">
+            <line x1="60" y1="8" x2="60" y2="16"/>
+            <line x1="112" y1="60" x2="104" y2="60"/>
+            <line x1="60" y1="112" x2="60" y2="104"/>
+            <line x1="8" y1="60" x2="16" y2="60"/>
+            <g stroke="#BFE6F7" stroke-width="2">
+              <line x1="86" y1="15" x2="82" y2="22"/>
+              <line x1="105" y1="34" x2="98" y2="38"/>
+              <line x1="105" y1="86" x2="98" y2="82"/>
+              <line x1="86" y1="105" x2="82" y2="98"/>
+              <line x1="34" y1="105" x2="38" y2="98"/>
+              <line x1="15" y1="86" x2="22" y2="82"/>
+              <line x1="15" y1="34" x2="22" y2="38"/>
+              <line x1="34" y1="15" x2="38" y2="22"/>
+            </g>
+          </g>
+        </svg>
+
+        <!-- おばけ -->
+        <svg class="ghost-svg" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M50 8 C28 8 16 25 16 46 L16 88 C16 92 20 93 23 90 L32 82 L41 91 C44 94 47 94 50 91 L59 82 L68 91 C71 94 74 93 77 90 L84 84 C84 84 84 70 84 46 C84 25 72 8 50 8 Z"
+                fill="#FFFFFF" stroke="#2A8FC4" stroke-width="4" stroke-linejoin="round"/>
+          <ellipse cx="38" cy="44" rx="5" ry="7" fill="#1F3A52"/>
+          <ellipse cx="62" cy="44" rx="5" ry="7" fill="#1F3A52"/>
+          <ellipse cx="30" cy="56" rx="5" ry="3" fill="#8FD8F5" opacity="0.8"/>
+          <ellipse cx="70" cy="56" rx="5" ry="3" fill="#8FD8F5" opacity="0.8"/>
+          <path d="M44 58 Q50 64 56 58" stroke="#1F3A52" stroke-width="3" stroke-linecap="round" fill="none"/>
         </svg>
       </div>
 
@@ -401,7 +476,7 @@
 
     <!-- プレイリスト -->
     <div class="playlist-section">
-      <div class="playlist-header">🎵 TRACK LIST</div>
+      <div class="playlist-header">🏫 TRACK LIST</div>
       <ul class="track-list" id="trackList"></ul>
     </div>
 
@@ -435,8 +510,8 @@
     ];
 
     // アイコン絵文字設定（ホーム画面＆ファビコン＆ロック画面アート用）
-    const ICON_EMOJI = "🎀";
-    const ICON_BG = "#e62e5c";
+    const ICON_EMOJI = "👻";
+    const ICON_BG = "#4db8e8";
     const ARTIST_NAME = "重音テト";
     const ALBUM_NAME = "MY ORIGINAL TRACKS";
     // =====================================================================
@@ -463,6 +538,23 @@
       const appleIconEl = document.getElementById("dynamic-apple-icon");
       if (faviconEl) faviconEl.href = generatedIconDataUrl;
       if (appleIconEl) appleIconEl.href = generatedIconDataUrl;
+    }
+
+    // 背景の漂うおばけ・校舎を生成
+    function spawnFloaters() {
+      const wrap = document.getElementById("floaters");
+      if (!wrap) return;
+      const emojis = ["👻", "🏫", "👻", "☁️", "👻"];
+      for (let i = 0; i < 9; i++) {
+        const el = document.createElement("span");
+        el.className = "floater";
+        el.textContent = emojis[i % emojis.length];
+        el.style.left = (5 + Math.random() * 90) + "%";
+        el.style.fontSize = (20 + Math.random() * 22) + "px";
+        el.style.animationDuration = (18 + Math.random() * 18) + "s";
+        el.style.animationDelay = (-Math.random() * 30) + "s";
+        wrap.appendChild(el);
+      }
     }
 
     // =====================================================================
@@ -668,7 +760,7 @@
       el.muted = false;
       el.loop = (loopMode === 2);
       currentIndex = index;
-      preparedIndex = (el === old) ? null : null;
+      preparedIndex = null;
 
       currentTitleEl.textContent = song.title;
       currentMemoEl.textContent = song.memo || "STREAMING ONLY";
@@ -829,6 +921,7 @@
 
     // 初期化
     generateEmojiIcons();
+    spawnFloaters();
     setupMediaSessionHandlers();
     renderPlaylist();
     if (SONGS.length > 0) {
