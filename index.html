@@ -248,34 +248,6 @@
       box-shadow: 0 2px 0 #a8183d;
     }
 
-    .volume-box {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      margin-top: 14px;
-      font-size: 0.85rem;
-      color: var(--teto-crimson);
-      font-weight: 800;
-    }
-
-    .volume-box input[type="range"] {
-      width: 120px;
-      height: 8px;
-    }
-
-    .volume-box input[type="range"]::-webkit-slider-thumb {
-      width: 18px;
-      height: 18px;
-    }
-
-    .volume-val {
-      font-family: 'Orbitron', sans-serif;
-      font-size: 0.75rem;
-      min-width: 36px;
-      text-align: left;
-    }
-
     .playlist-section {
       background: #fff7f9;
       border-top: 3px solid #ffd6e0;
@@ -434,13 +406,6 @@
         <button class="btn btn-sub" id="nextBtn" title="次の曲">▶▶</button>
         <button class="btn btn-sub btn-loop" id="loopBtn" title="ループ切替">🔁 OFF</button>
       </div>
-
-      <!-- 音量 -->
-      <div class="volume-box">
-        <span id="volIcon">🔊</span>
-        <input type="range" id="volumeBar" min="0" max="100" step="1" value="80">
-        <span class="volume-val" id="volumeVal">80%</span>
-      </div>
     </div>
 
     <!-- プレイリスト -->
@@ -520,9 +485,6 @@
     const nextBtn = document.getElementById("nextBtn");
     const loopBtn = document.getElementById("loopBtn");
     const seekBar = document.getElementById("seekBar");
-    const volumeBar = document.getElementById("volumeBar");
-    const volumeVal = document.getElementById("volumeVal");
-    const volIcon = document.getElementById("volIcon");
     const currentTimeEl = document.getElementById("currentTime");
     const durationTimeEl = document.getElementById("durationTime");
     const currentTitleEl = document.getElementById("currentTitle");
@@ -632,7 +594,6 @@
         const blob = await response.blob();
         currentBlobUrl = URL.createObjectURL(blob);
         audio.src = currentBlobUrl;
-        applyVolume();
         currentMemoEl.textContent = song.memo || "STREAMING ONLY";
 
         if (autoPlay) {
@@ -646,22 +607,8 @@
       }
     }
 
-    function applyVolume() {
-      const percent = Number(volumeBar.value);
-      audio.volume = Math.max(0, Math.min(1, percent / 100));
-      volumeVal.textContent = `${percent}%`;
-      if (percent === 0) {
-        volIcon.textContent = "🔇";
-      } else if (percent < 50) {
-        volIcon.textContent = "🔉";
-      } else {
-        volIcon.textContent = "🔊";
-      }
-    }
-
     function playSong() {
       if (!audio.src) return;
-      applyVolume();
       audio.play().then(() => {
         isPlaying = true;
         playBtn.textContent = "❚❚";
@@ -684,7 +631,6 @@
       }
     }
 
-    // ブラウザ側の再生・一時停止イベントとUIを同期
     audio.addEventListener("play", () => {
       isPlaying = true;
       playBtn.textContent = "❚❚";
@@ -767,10 +713,6 @@
       }
     });
 
-    volumeBar.addEventListener("input", applyVolume);
-    volumeBar.addEventListener("change", applyVolume);
-
-    // 画面復帰時に再生状態とUIを同期
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") {
         const actuallyPlaying = !audio.paused && !audio.ended;
@@ -783,11 +725,9 @@
     // 初期化
     generateEmojiIcons();
     setupMediaSessionHandlers();
-    applyVolume();
     if (SONGS.length > 0) {
       loadSong(0, false);
     }
   </script>
 </body>
 </html>
-
