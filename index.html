@@ -7,6 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="MY TRACKS">
   <meta name="theme-color" content="#e62e5c">
+  <meta name="robots" content="noindex, nofollow">
   <title>自作曲プレイヤー</title>
 
   <!-- JSでPNGアイコンを自動生成して差し込むための枠 -->
@@ -32,6 +33,9 @@
       padding: 0;
       user-select: none;
       -webkit-user-select: none;
+      -webkit-touch-callout: none;   /* 長押しメニューを出さない */
+      -webkit-user-drag: none;
+      -webkit-tap-highlight-color: transparent;
     }
 
     body {
@@ -403,7 +407,6 @@
 
     <div class="footer">
       <div>Coding: Gemini / Claude</div>
-      <div>© ゆーれい</div>
     </div>
   </div>
 
@@ -434,7 +437,7 @@
     // アイコン絵文字設定（ホーム画面＆ファビコン＆ロック画面アート用）
     const ICON_EMOJI = "🎀";
     const ICON_BG = "#e62e5c";
-    const ARTIST_NAME = "ゆーれい";
+    const ARTIST_NAME = "重音テト";
     const ALBUM_NAME = "MY ORIGINAL TRACKS";
     // =====================================================================
 
@@ -462,11 +465,21 @@
       if (appleIconEl) appleIconEl.href = generatedIconDataUrl;
     }
 
-    // ★バックグラウンド再生のため、<audio>要素は1つだけを使い回し、
-    //   曲切り替え時も同じ要素の src を同期的に差し替えて play() します。
-    const audio = new Audio();
-    audio.preload = "auto";
-    audio.setAttribute("playsinline", "");
+    // =====================================================================
+    // ★途切れ対策：<audio>を2つ用意（ダブルバッファ）
+    //   再生中は「次の曲」をもう片方に先読みしておき、曲が終わった瞬間に
+    //   同期的に切り替えます。通信待ち・読み込み待ちが無いので、
+    //   バックグラウンド・画面ロック中でも途切れにくくなります。
+    // =====================================================================
+    const players = [new Audio(), new Audio()];
+    players.forEach(p => {
+      p.preload = "auto";
+      p.setAttribute("playsinline", "");
+      p.setAttribute("controlsList", "nodownload");
+    });
+    let activeIdx = 0;
+    const getActive = () => players[activeIdx];
+    const getIdle = () => players[1 - activeIdx];
 
     const playerCard = document.getElementById("playerCard");
     const playBtn = document.getElementById("playBtn");
@@ -481,13 +494,24 @@
     const trackListEl = document.getElementById("trackList");
 
     let currentIndex = 0;
+    let preparedIndex = null;   // 待機側プレイヤーに先読み済みの曲番号
     let isPlaying = false;
-    let loopMode = 0; // 0:OFF 1:ALL 2:1曲
+    let loopMode = 0;           // 0:OFF 1:ALL 2:1曲
+    let unlocked = false;       // 待機側プレイヤーの再生許可を取得済みか
 
-    // 右クリック・保存ショートカットのブロック
-    document.addEventListener("contextmenu", e => e.preventDefault());
+    // ---------- 見た目上の保存防止 ----------
+    ["contextmenu", "dragstart", "selectstart", "copy", "cut"].forEach(evt => {
+      document.addEventListener(evt, e => e.preventDefault());
+    });
     document.addEventListener("keydown", e => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S" || e.key === "u" || e.key === "U")) {
+      const k = (e.key || "").toLowerCase();
+      const mod = e.ctrlKey || e.metaKey;
+      if (
+        e.key === "F12" ||
+        (mod && ["s", "u", "p", "a"].includes(k)) ||
+        (mod && e.shiftKey && ["i", "j", "c"].includes(k)) ||
+        (e.metaKey && e.altKey && ["i", "j", "c", "u"].includes(k))
+      ) {
         e.preventDefault();
       }
     });
@@ -520,12 +544,13 @@
 
     function updatePositionState() {
       if (!("mediaSession" in navigator) || !navigator.mediaSession.setPositionState) return;
-      if (!isFinite(audio.duration) || audio.duration <= 0) return;
+      const a = getActive();
+      if (!isFinite(a.duration) || a.duration <= 0) return;
       try {
         navigator.mediaSession.setPositionState({
-          duration: audio.duration,
-          playbackRate: audio.playbackRate || 1,
-          position: Math.min(audio.currentTime, audio.duration)
+          duration: a.duration,
+          playbackRate: a.playbackRate || 1,
+          position: Math.min(a.currentTime, a.duration)
         });
       } catch (e) { /* 無視 */ }
     }
@@ -542,15 +567,17 @@
       set("nexttrack", () => goNext());
       set("seekto", d => {
         if (d && typeof d.seekTime === "number") {
-          audio.currentTime = d.seekTime;
+          getActive().currentTime = d.seekTime;
           updatePositionState();
         }
       });
       set("seekbackward", d => {
-        audio.currentTime = Math.max(0, audio.currentTime - ((d && d.seekOffset) || 10));
+        const a = getActive();
+        a.currentTime = Math.max(0, a.currentTime - ((d && d.seekOffset) || 10));
       });
       set("seekforward", d => {
-        audio.currentTime = Math.min(audio.duration || Infinity, audio.currentTime + ((d && d.seekOffset) || 10));
+        const a = getActive();
+        a.currentTime = Math.min(a.duration || Infinity, a.currentTime + ((d && d.seekOffset) || 10));
       });
     }
 
@@ -567,84 +594,185 @@
           <span class="track-badge">MP3</span>
         `;
         li.addEventListener("click", () => {
-          loadSong(index, true);
+          unlockIdlePlayer();
+          switchTo(index, true);
         });
         trackListEl.appendChild(li);
       });
     }
 
-    // ★同期処理にしたのがポイント。fetch等の非同期待ちを挟まないので、
-    //   バックグラウンド・画面ロック中でも次の曲の play() が許可されます。
-    function loadSong(index, autoPlay = false) {
+    // ---------- 次の曲の先読み ----------
+    function nextIndexAfter(i) {
+      if (SONGS.length === 0) return -1;
+      if (loopMode === 0 && i + 1 >= SONGS.length) return -1; // OFFの最終曲は次なし
+      return (i + 1) % SONGS.length;
+    }
+
+    function prepareNext() {
+      const idle = getIdle();
+      const next = nextIndexAfter(currentIndex);
+      if (next < 0 || SONGS.length < 2) {
+        preparedIndex = null;
+        return;
+      }
+      if (preparedIndex === next) return;
+      idle.pause();
+      idle.src = SONGS[next].file;
+      idle.loop = false;
+      idle.load();
+      preparedIndex = next;
+    }
+
+    // スマホは「ユーザー操作で一度再生したプレイヤー」しか
+    // バックグラウンドで自動再生できないことがあるため、
+    // 最初のタップ時に待機側も無音で一度だけ再生許可を取っておく
+    function unlockIdlePlayer() {
+      if (unlocked) return;
+      unlocked = true;
+      const idle = getIdle();
+      if (!idle.src) return;
+      idle.muted = true;
+      const p = idle.play();
+      const restore = () => {
+        idle.pause();
+        try { idle.currentTime = 0; } catch (e) {}
+        idle.muted = false;
+      };
+      if (p && typeof p.then === "function") {
+        p.then(restore).catch(() => { idle.muted = false; });
+      } else {
+        restore();
+      }
+    }
+
+    // ---------- 曲の切り替え（すべて同期処理） ----------
+    function switchTo(index, autoPlay) {
       if (SONGS.length === 0) return;
+      const song = SONGS[index];
+      const old = getActive();
+      let el;
+
+      if (preparedIndex === index) {
+        // 先読み済みの待機側へ切り替え
+        activeIdx = 1 - activeIdx;
+        el = getActive();
+        try { el.currentTime = 0; } catch (e) {}
+      } else {
+        el = old;
+        el.src = song.file;
+        el.load();
+      }
+
+      if (el !== old) old.pause();
+
+      el.muted = false;
+      el.loop = (loopMode === 2);
       currentIndex = index;
-      const song = SONGS[currentIndex];
+      preparedIndex = (el === old) ? null : null;
 
       currentTitleEl.textContent = song.title;
       currentMemoEl.textContent = song.memo || "STREAMING ONLY";
       seekBar.value = 0;
       currentTimeEl.textContent = "00:00";
-      durationTimeEl.textContent = "00:00";
+      durationTimeEl.textContent = formatTime(el.duration);
       renderPlaylist();
       updateMediaSession(song);
 
-      audio.src = song.file;
-      audio.loop = (loopMode === 2);
-      audio.load();
-
       if (autoPlay) {
-        playSong();
+        const p = el.play();
+        if (p && typeof p.catch === "function") {
+          p.catch(err => console.warn("再生エラー:", err));
+        }
       } else {
-        pauseSong();
+        el.pause();
       }
+
+      prepareNext();
     }
 
     function playSong() {
-      if (!audio.src) return;
-      const p = audio.play();
+      const a = getActive();
+      if (!a.src) return;
+      unlockIdlePlayer();
+      const p = a.play();
       if (p && typeof p.catch === "function") {
-        p.catch(err => {
-          console.warn("再生エラー:", err);
-        });
+        p.catch(err => console.warn("再生エラー:", err));
       }
     }
 
     function pauseSong() {
-      audio.pause();
+      getActive().pause();
     }
 
     function goPrev() {
       // 3秒以上再生していたら頭出し、それ以外は前の曲
-      if (audio.currentTime > 3) {
-        audio.currentTime = 0;
+      if (getActive().currentTime > 3) {
+        getActive().currentTime = 0;
         return;
       }
-      loadSong((currentIndex - 1 + SONGS.length) % SONGS.length, true);
+      switchTo((currentIndex - 1 + SONGS.length) % SONGS.length, true);
     }
 
     function goNext() {
-      loadSong((currentIndex + 1) % SONGS.length, true);
+      switchTo((currentIndex + 1) % SONGS.length, true);
     }
 
-    // 再生状態は audio 要素のイベントを唯一の情報源にする
-    audio.addEventListener("play", () => {
+    // ---------- プレイヤーのイベント（アクティブ側だけ反応） ----------
+    function onActive(evt, fn) {
+      players.forEach(p => {
+        p.addEventListener(evt, () => {
+          if (p === getActive()) fn(p);
+        });
+      });
+    }
+
+    onActive("play", () => {
       isPlaying = true;
       playBtn.textContent = "❚❚";
       playerCard.classList.add("playing");
       if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
     });
 
-    audio.addEventListener("pause", () => {
+    onActive("pause", () => {
       isPlaying = false;
       playBtn.textContent = "▶";
       playerCard.classList.remove("playing");
       if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
     });
 
-    audio.addEventListener("error", () => {
+    onActive("error", () => {
       currentMemoEl.textContent = "※ファイル名を確認してください（サーバー上で開く必要があります）";
     });
 
+    onActive("loadedmetadata", a => {
+      durationTimeEl.textContent = formatTime(a.duration);
+      updatePositionState();
+    });
+
+    onActive("timeupdate", a => {
+      if (!isNaN(a.duration) && a.duration > 0) {
+        seekBar.value = (a.currentTime / a.duration) * 100;
+        currentTimeEl.textContent = formatTime(a.currentTime);
+      }
+    });
+
+    // ★曲の終了時：先読み済みのプレイヤーへ即切り替えて再生
+    onActive("ended", a => {
+      if (loopMode === 2) {
+        a.currentTime = 0;
+        a.play().catch(() => {});
+        return;
+      }
+      const next = nextIndexAfter(currentIndex);
+      if (next >= 0) {
+        switchTo(next, true);
+      } else {
+        a.currentTime = 0;
+        a.pause();
+      }
+    });
+
+    // ---------- 画面の操作 ----------
     loopBtn.addEventListener("click", () => {
       loopMode = (loopMode + 1) % 3;
       if (loopMode === 0) {
@@ -658,7 +786,10 @@
         loopBtn.classList.add("active");
       }
       // 1曲ループはブラウザ標準のloopに任せる（バックグラウンドでも確実）
-      audio.loop = (loopMode === 2);
+      getActive().loop = (loopMode === 2);
+      // ループ設定が変わったので先読みをやり直す
+      preparedIndex = null;
+      prepareNext();
     });
 
     playBtn.addEventListener("click", () => {
@@ -666,60 +797,42 @@
       else playSong();
     });
 
-    prevBtn.addEventListener("click", goPrev);
-    nextBtn.addEventListener("click", goNext);
-
-    audio.addEventListener("loadedmetadata", () => {
-      durationTimeEl.textContent = formatTime(audio.duration);
-      updatePositionState();
-    });
-
-    audio.addEventListener("timeupdate", () => {
-      if (!isNaN(audio.duration) && audio.duration > 0) {
-        seekBar.value = (audio.currentTime / audio.duration) * 100;
-        currentTimeEl.textContent = formatTime(audio.currentTime);
-      }
-    });
-
-    // ★曲の終了時：同期的に次の曲へ切り替えて再生（背景でも途切れない）
-    audio.addEventListener("ended", () => {
-      if (loopMode === 2) {
-        audio.currentTime = 0;
-        playSong();
-      } else if (loopMode === 1) {
-        loadSong((currentIndex + 1) % SONGS.length, true);
-      } else {
-        if (currentIndex + 1 < SONGS.length) {
-          loadSong(currentIndex + 1, true);
-        } else {
-          audio.currentTime = 0;
-          pauseSong();
-        }
-      }
-    });
+    prevBtn.addEventListener("click", () => { unlockIdlePlayer(); goPrev(); });
+    nextBtn.addEventListener("click", () => { unlockIdlePlayer(); goNext(); });
 
     seekBar.addEventListener("input", () => {
-      if (!isNaN(audio.duration)) {
-        audio.currentTime = (seekBar.value / 100) * audio.duration;
+      const a = getActive();
+      if (!isNaN(a.duration)) {
+        a.currentTime = (seekBar.value / 100) * a.duration;
         updatePositionState();
       }
     });
 
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") {
-        const actuallyPlaying = !audio.paused && !audio.ended;
-        isPlaying = actuallyPlaying;
-        playBtn.textContent = actuallyPlaying ? "❚❚" : "▶";
-        playerCard.classList.toggle("playing", actuallyPlaying);
-        updatePositionState();
+    // 画面に戻ったときに表示を実際の状態に合わせる
+    function syncUi() {
+      const a = getActive();
+      const actuallyPlaying = !a.paused && !a.ended;
+      isPlaying = actuallyPlaying;
+      playBtn.textContent = actuallyPlaying ? "❚❚" : "▶";
+      playerCard.classList.toggle("playing", actuallyPlaying);
+      if (!isNaN(a.duration) && a.duration > 0) {
+        seekBar.value = (a.currentTime / a.duration) * 100;
+        currentTimeEl.textContent = formatTime(a.currentTime);
+        durationTimeEl.textContent = formatTime(a.duration);
       }
+      updatePositionState();
+    }
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") syncUi();
     });
+    window.addEventListener("pageshow", syncUi);
 
     // 初期化
     generateEmojiIcons();
     setupMediaSessionHandlers();
+    renderPlaylist();
     if (SONGS.length > 0) {
-      loadSong(0, false);
+      switchTo(0, false);
     }
   </script>
 </body>
